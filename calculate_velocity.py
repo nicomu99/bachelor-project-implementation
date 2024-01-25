@@ -3,7 +3,7 @@ import sys
 
 sys.path.append('/home/nico/VSCodeRepos/SigMA')
 from NoiseRemoval.bulk_velocity_solver import dense_sample, optimize_velocity_skycoords
-from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity
+from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity, optimize_velocity
 
 def calculate_velocity(
     data, 
@@ -43,7 +43,7 @@ def calculate_velocity(
     rv_copy[np.isnan(rv)] = 0
     rv_err_copy = np.copy(rv_err)
     rv_err_copy[np.isnan(rv_err)] = 1e5
-    sol = optimize_velocity_skycoords(
+    sol = optimize_velocity(
         ra, dec, plx, pmra, pmdec, rv_copy, pmra_err, pmdec_err, rv_err_copy
     )
     optimal_vel = sol.x[:3]
