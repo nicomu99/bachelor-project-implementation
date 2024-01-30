@@ -10,6 +10,7 @@ from NoiseRemoval.bulk_velocity_solver_matrix import dense_sample, bootstrap_bul
 from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity, optimize_velocity
 from NoiseRemoval.xd_special import XDSingleCluster
 from miscellaneous.covariance_trafo_sky2gal import transform_covariance_shper2gal
+from miscellaneous.error_sampler import ErrorSampler
 
 
 class VelocityTester:
@@ -18,13 +19,15 @@ class VelocityTester:
         self.testing_mode = testing_mode
         self.weights = weights
     
-    def run_test(self, labels, g, n, err_sampler, return_pvalues=False):
+    def run_test(self, labels, g, n, err_sampler=None, return_pvalues=False):
         if self.testing_mode == 'ttest':
             return self.ttest(labels, g, n, return_pvalues)
         elif self.testing_mode == 'bootstrap_range_test':
             return self.bootstrap_range_test(labels, g, n, return_pvalues)
         elif self.testing_mode == 'xd_mean':
             return self.xd_mean(labels, g, n, err_sampler, return_pvalues)
+        elif self.testing_mode == 'error_sample_ttest':
+            return self.error_sample_ttest(labels, g, n, return_pvalues)
 
 
     def ttest(self, labels, g, n, return_pvalues=False):
@@ -127,3 +130,28 @@ class VelocityTester:
         )
 
         return max_mahalanobis_distance < 2, [xd[0].mu, xd[1].mu], max_mahalanobis_distance
+    
+        
+    def get_error_sample(self, cluster_index):
+        # generate a new sampler on the cluster data
+        err_sampler = ErrorSampler(self.data[cluster_index])
+        err_sampler.build_covariance_matrix()
+        # Create sample from errors
+        cols = ['X', 'Y', 'Z', 'U', 'V', 'W']
+        data_new = pd.DataFrame(err_sampler.spher2cart(err_sampler.new_sample()), columns=cols)
+
+        return data_new[['U', 'V', 'W']]
+    
+    def error_sample_ttest(self, labels, g, n, return_pvalues=False):
+        # get the error sample for both clusters
+        err_sample = []
+        for cluster in [g, n]:
+            cluster_index = labels == cluster
+            err_sample.append(self.get_error_sample(cluster_index))
+
+        # calculate a t-test on the error samples
+        _, pvalues = ttest_ind(err_sample[0], err_sample[1], equal_var=False)
+
+        if return_pvalues:
+            return self.is_same_velocity(pvalues), err_sample, pvalues
+        return self.is_same_velocity(pvalues), err_sample
