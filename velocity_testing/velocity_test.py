@@ -28,6 +28,8 @@ class VelocityTester:
             return self.xd_mean(labels, g, n, err_sampler, return_pvalues)
         elif self.testing_mode == 'error_sample_ttest':
             return self.error_sample_ttest(labels, g, n, return_pvalues)
+        elif self.testing_mode == 'xd_mean_sample_distance':
+            return self.xd_mean_sample_distance(labels, g, n, err_sampler, return_pvalues)
 
 
     def ttest(self, labels, g, n, return_pvalues=False):
@@ -155,3 +157,34 @@ class VelocityTester:
         if return_pvalues:
             return self.is_same_velocity(pvalues), err_sample, pvalues
         return self.is_same_velocity(pvalues), err_sample
+    
+    def xd_mean_sample_distance(self, labels, g, n, err_sampler, return_pvalues=False):
+        # we need the error sampler for both clusters to generate new samples
+        # we need the extreme deconvolution to calculate the mahalanobis distance
+        # we then calculate the maximal distance from each cluster to the mean of the other cluster
+        # and finally take the minimum of those two distances
+
+        samples, xd = [], []
+        for cluster in [g, n]:
+            cluster_index = labels == cluster
+            samples.append(self.get_error_sample(cluster_index))
+            xd.append(self.get_xd(err_sampler, cluster_index))
+
+        # calculate the maximal distance between each point in the samples and the mean of the other cluster
+        distances = []
+        for i in range(2):
+            distances.append(
+                np.max(
+                    np.array(
+                        [
+                            self.calculate_distance(xd[i].V, xd[i].mu, sample)
+                            for sample in samples[1 - i].values
+                        ]
+                    )
+                )
+            )
+
+        # take the minimum of the two distances
+        min_distance = min(distances)
+
+        return min_distance < 2, [xd[0].mu, xd[1].mu], min_distance
