@@ -338,34 +338,51 @@ class VelocityTester:
             return min_distance < 2, [xd[0].mu, xd[1].mu], min_distance
         return min_distance < 2
     
-    def error_sample_bootstrap_range_test(self, labels, g, n, return_stats):
+    def error_sample_bootstrap_range_test(self, labels, cluster1, cluster2, return_stats):
+        """
+        Perform a range-based bootstrap test on the error samples of two clusters.
+
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        g : int
+            Label of the first cluster
+        n : int
+            Label of the second cluster
+        return_stats : bool
+            Return the statistics of the test
+
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise
+        """
+
         # we bootstrap the dense core and get a sample from the error sampler for each bootstrap
         # then we calculate the velocity for each bootstrap and finally report the confidence interval
         # of the differences between the velocities
 
         # get the dense core
-        dense_core_g = dense_sample(self.weights[labels == g])
-        dense_core_n = dense_sample(self.weights[labels == n])
+        dense_cores = [
+            dense_sample(self.weights[labels == cluster])
+            for cluster in [cluster1, cluster2]
+        ]
 
         # get the data of the dense core
-        data_g = self.data[labels == g].loc[dense_core_g]
-        data_n = self.data[labels == n].loc[dense_core_n]
+        dense_core_data = [
+            self.data[labels == cluster].loc[dense_cores[i], ['U', 'V', 'W']]
+            for i, cluster in enumerate([cluster1, cluster2])
+        ]
 
         velocity_differences = []
         for i in range(100):
-            # get a bootstrap sample from data_g and data_n
-            bootstrap_g = data_g.sample(n=len(data_g) - 1, replace=True)
-            bootstrap_n = data_n.sample(n=len(data_n) - 1, replace=True)
-
-            # print(bootstrap_g.shape)
-            # print(bootstrap_n.shape)
-
-            # get the error sample for both clusters
             err_sample_mean = []
-            for cluster in [bootstrap_g, bootstrap_n]:
-                err_sample_mean.append(np.mean(self.get_error_sample(cluster), axis=0))
-            
-            # calculate the difference
+            for core_data in dense_core_data:
+                bootstrap_sample = core_data.sample(n=len(core_data) - 1, replace=True)
+                err_sample = self.get_error_sample(bootstrap_sample)
+                err_sample_mean.append(np.mean(err_sample, axis=0))
+
             velocity_differences.append(err_sample_mean[0] - err_sample_mean[1])
 
         # calculate the confidence interval
@@ -374,10 +391,10 @@ class VelocityTester:
         # check if the confidence interval contains 0 for all dimension
         is_same_velocity = True
         for i in range(3):
-            if confidence_interval[0][i] > 0 or confidence_interval[1][0] < 0:
+            if confidence_interval[0][i] > 0 or confidence_interval[1][i] < 0:
                 is_same_velocity = False
                 break
 
         if return_stats:
             return is_same_velocity, velocity_differences, confidence_interval
-        return is_same_velocity, velocity_differences
+        return is_same_velocity
