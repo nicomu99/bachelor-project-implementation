@@ -25,12 +25,12 @@ class VelocityTester:
             return self.ttest                               (labels, g, n, return_stats)
         elif self.testing_mode == 'bootstrap_range_test':
             return self.bootstrap_range_test                (labels, g, n, return_stats)
-        elif self.testing_mode == 'xd_mean':
-            return self.xd_mean                             (labels, g, n, return_stats)
+        elif self.testing_mode == 'xd_mean_distance':
+            return self.xd_mean_distance                             (labels, g, n, return_stats)
         elif self.testing_mode == 'error_sample_ttest':
             return self.error_sample_ttest                  (labels, g, n, return_stats)
-        elif self.testing_mode == 'xd_mean_sample_distance':
-            return self.xd_mean_sample_distance             (labels, g, n, return_stats)
+        elif self.testing_mode == 'xd_mean_distance_sample_distance':
+            return self.xd_mean_distance_sample_distance             (labels, g, n, return_stats)
         elif self.testing_mode == 'error_sample_bootstrap_range_test':
             return self.error_sample_bootstrap_range_test   (labels, g, n, return_stats)
         else:
@@ -192,13 +192,9 @@ class VelocityTester:
         # get dense sample
         dense_core = dense_sample(self.weights[cluster_index])
 
-        c_vel = ['U', 'V', 'W']
-        X = self.data[cluster_index].loc[dense_core, c_vel].values
-        C = self.error_sampler.C[cluster_index][dense_core, 3:, 3:]
+        X = self.data[cluster_index].loc[dense_core, ['U', 'V', 'W']].values
+        Xerr = self.error_sampler[cluster_index].loc[dense_core, ['U', 'V', 'W']].values
 
-        ra, dec, plx = self.data[cluster_index].loc[dense_core, ['ra', 'dec', 'parallax']].values.T
-        # Compute covariance matrix in Galactic coordinates
-        C_uvw = transform_covariance_shper2gal(ra, dec, plx, C)     
         xd = XDOutlier().fit(X, Xerr)
         return xd
     
@@ -216,21 +212,44 @@ class VelocityTester:
 
         return distance.mahalanobis(x, mu, iv)
     
-    def xd_mean(self, labels, g, n, return_stats=False):
+    def xd_mean_distance(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a test based on the mahalanobis distance between the means of two clusters.
+        
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1 : int
+            Label of the first cluster 
+        cluster2 : int
+            Label of the second cluster
+        return_stats : bool
+            Return the statistics of the test
+                
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise
+        """
+
         # for each cluster, get the xd object
         xd = []
-        for cluster in [g, n]:
+        for cluster in [cluster1, cluster2]:
             cluster_index = labels == cluster
             xd.append(self.get_xd(cluster_index))
 
         # get the mahalanobis distance between the two clusters and maximize it
-        max_mahalanobis_distance = max(
-            self.calculate_distance(xd[0].V, xd[0].mu, xd[1].mu),
-            self.calculate_distance(xd[1].V, xd[1].mu, xd[0].mu)
-        )
+        mu1, V1 = xd[0].min_entropy_component()
+        mu2, V2 = xd[1].min_entropy_component()
+        max_mahalanobis_distance = max([
+            self.calculate_distance(V1, mu1, mu2),
+            self.calculate_distance(V2, mu2, mu1)
+        ])
 
-        return max_mahalanobis_distance < 2, [xd[0].mu, xd[1].mu], max_mahalanobis_distance
-    
+        if return_stats:
+            return max_mahalanobis_distance < 2, [xd[0].mu, xd[1].mu], max_mahalanobis_distance
+        return max_mahalanobis_distance < 2
         
     def get_error_sample(self, data):
         # generate a new sampler on the cluster data
@@ -256,7 +275,7 @@ class VelocityTester:
             return self.is_same_velocity(pvalues), err_sample, pvalues
         return self.is_same_velocity(pvalues), err_sample
     
-    def xd_mean_sample_distance(self, labels, g, n, return_stats=False):
+    def xd_mean_distance_sample_distance(self, labels, g, n, return_stats=False):
         # we need the error sampler for both clusters to generate new samples
         # we need the extreme deconvolution to calculate the mahalanobis distance
         # we then calculate the maximal distance from each cluster to the mean of the other cluster
