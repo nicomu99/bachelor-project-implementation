@@ -6,7 +6,7 @@ from scipy.spatial import distance
 import sys
 
 sys.path.append('/home/nico/VSCodeRepos/SigMA')
-from NoiseRemoval.bulk_velocity_solver_matrix import dense_sample, bootstrap_bulk_velocity_solver_matrix
+from NoiseRemoval.bulk_velocity_solver_matrix import dense_sample, bootstrap_bulk_velocity_solver_matrix, bulk_velocity_solver_matrix
 from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity, optimize_velocity
 from NoiseRemoval.xd_outlier import XDOutlier
 from miscellaneous.covariance_trafo_sky2gal import transform_covariance_shper2gal
@@ -73,40 +73,65 @@ class VelocityTester:
             return self.is_same_velocity(pvalues), velocity_results, {'pvalues': pvalues, 'stats':t_stat}
         return self.is_same_velocity(pvalues)
     
-    def bootstrap_range_test(self, labels, g, n, return_stats=False):
-        # calculate the velocities for both groups
-        velocity_results = []
-        for cluster in [g, n]:
-            velocity_results.append(
-                bootstrap_bulk_velocity_solver_matrix(
-                    self.data[labels == cluster], 
-                    self.weights[labels == cluster],
-                    n_bootstraps=5
-                )
+    def bootstrap_difference_test(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a two-sided bootstrap test.
+        
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1 : int
+            Label of the first cluster
+        cluster2 : int
+            Label of the second cluster
+        return_stats : bool
+        
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise"""
+
+        n_bootstraps = 100
+
+        # calculate the true velocities for both groups
+        velocities_true = [
+            bulk_velocity_solver_matrix(
+                self.data[labels == cluster],
+                self.weights[labels == cluster]
             )
+            for cluster in [cluster1, cluster2]
+        ]
 
-        # TODO: refactor
-        for i in range(2):
-            for j in range(len(velocity_results[i])):
-                velocity_results[i][j] = velocity_results[i][j].x[:3]
-        velocity_results = np.array(velocity_results)
+        # calculate the difference
+        velocity_differences = velocities_true[0] - velocities_true[1]
 
+        # calculate the velocities for both groups
+        velocity_bootstrap = [
+            bootstrap_bulk_velocity_solver_matrix(
+                self.data[labels == cluster], 
+                self.weights[labels == cluster],
+                n_bootstraps=n_bootstraps
+            )
+            for cluster in [cluster1, cluster2]
+        ]
 
-        # calculate the differences between the velocities and confidence intervals of differences
-        velocity_differences = velocity_results[0] - velocity_results[1]
-        confidence_interval = np.percentile(velocity_differences, [2.5, 97.5], axis=0)
+        # calculate the difference between each bootstrap
+        velocity_differences_bootstrap = [
+            velocity_bootstrap[0][i] - velocity_bootstrap[1][i]
+            for i in range(50)
+        ]
 
+        pvalue = np.max([
+            ((velocity_differences_bootstrap > velocity_differences) + 1) / (n_bootstraps + 1), 
+            ((velocity_differences_bootstrap < velocity_differences) + 1) / (n_bootstraps + 1)
+        ])
+        pvalue *= 2
 
-        # check if the confidence interval contains 0 for all dimension
-        is_same_velocity = True
-        for i in range(3):
-            if confidence_interval[0][i] > 0 or confidence_interval[1][0] < 0:
-                is_same_velocity = False
-                break
-
+        # the pvalue has to be smaller than 0.05 to reject the null hypothesis
         if return_stats:
-            return is_same_velocity, velocity_results, confidence_interval
-        return is_same_velocity, velocity_results
+            return pvalue < 0.05, velocity_differences_bootstrap, pvalue
+        return pvalue < 0.05
     
     @staticmethod
     def is_same_velocity(pvalues):
