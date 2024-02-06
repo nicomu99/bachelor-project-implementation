@@ -133,6 +133,56 @@ class VelocityTester:
             return pvalue < 0.05, velocity_differences_bootstrap, pvalue
         return pvalue < 0.05
     
+    def bootstrap_difference_test(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a range-based bootstrap test.
+        
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1 : int
+            Label of the first cluster
+        cluster2 : int
+            Label of the second cluster
+        return_stats : bool
+        
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise"""
+
+        # calculate the velocities for both groups
+        n_bootstraps = 100
+        velocity_bootstrap = [
+            bootstrap_bulk_velocity_solver_matrix(
+                self.data[labels == cluster], 
+                self.weights[labels == cluster],
+                n_bootstraps=n_bootstraps
+            )
+            for cluster in [cluster1, cluster2]
+        ]
+
+        # calculate the difference between each bootstrap
+        velocity_differences_bootstrap = [
+            velocity_bootstrap[0][i] - velocity_bootstrap[1][i]
+            for i in range(50)
+        ]
+
+        # calculate the confidence interval
+        confidence_interval = np.percentile(velocity_differences_bootstrap, [2.5, 97.5], axis=0)
+
+        # check if the confidence interval contains 0 for all dimension
+        is_same_velocity = True
+        for i in range(3):
+            if confidence_interval[0][i] > 0 or confidence_interval[1][i] < 0:
+                is_same_velocity = False
+                break
+
+        if return_stats:
+            return is_same_velocity, velocity_differences_bootstrap, confidence_interval
+        return is_same_velocity
+    
     @staticmethod
     def is_same_velocity(pvalues):
         return np.all(pvalues > 0.05)
