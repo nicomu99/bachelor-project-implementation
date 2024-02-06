@@ -196,7 +196,7 @@ class VelocityTester:
         Xerr = self.error_sampler[cluster_index].loc[dense_core, ['U', 'V', 'W']].values
 
         xd = XDOutlier().fit(X, Xerr)
-        return xd
+        return xd.min_entropy_component()
     
     @staticmethod
     def calculate_distance(self, V, mu, x):
@@ -234,17 +234,15 @@ class VelocityTester:
         """
 
         # for each cluster, get the xd object
-        xd = []
-        for cluster in [cluster1, cluster2]:
-            cluster_index = labels == cluster
-            xd.append(self.get_xd(cluster_index))
+        xd = [
+            [self.get_xd(labels == cluster)]
+            for cluster in [cluster1, cluster2]
+        ]
 
         # get the mahalanobis distance between the two clusters and maximize it
-        mu1, V1 = xd[0].min_entropy_component()
-        mu2, V2 = xd[1].min_entropy_component()
         max_mahalanobis_distance = max([
-            self.calculate_distance(V1, mu1, mu2),
-            self.calculate_distance(V2, mu2, mu1)
+            self.calculate_distance(xd[0][1], xd[0][0], xd[1][0]),
+            self.calculate_distance(xd[1][1], xd[1][0], xd[0][0])
         ])
 
         if return_stats:
@@ -294,14 +292,29 @@ class VelocityTester:
             return self.is_same_velocity(pvalues), err_sample, pvalues, t_stat
         return self.is_same_velocity(pvalues)
     
-    def xd_mean_distance_sample_distance(self, labels, g, n, return_stats=False):
-        # we need the error sampler for both clusters to generate new samples
-        # we need the extreme deconvolution to calculate the mahalanobis distance
-        # we then calculate the maximal distance from each cluster to the mean of the other cluster
-        # and finally take the minimum of those two distances
+    def xd_mean_distance_sample_distance(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a test based on the mahalanobis distance between the means of two clusters.
+
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1 : int
+            Label of the first cluster
+        cluster2 : int
+            Label of the second cluster
+        return_stats : bool
+            Return the statistics of the test
+
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise
+        """
 
         samples, xd = [], []
-        for cluster in [g, n]:
+        for cluster in [cluster1, cluster2]:
             cluster_index = labels == cluster
             samples.append(self.get_error_sample(cluster_index))
             xd.append(self.get_xd(self.error_sampler, cluster_index))
@@ -311,19 +324,19 @@ class VelocityTester:
         for i in range(2):
             distances.append(
                 np.max(
-                    np.array(
-                        [
-                            self.calculate_distance(xd[i].V, xd[i].mu, sample)
-                            for sample in samples[1 - i].values
-                        ]
-                    )
+                    [
+                        self.calculate_distance(xd[i].V, xd[i].mu, sample)
+                        for sample in samples[1 - i].values
+                    ]
                 )
             )
 
         # take the minimum of the two distances
         min_distance = min(distances)
 
-        return min_distance < 2, [xd[0].mu, xd[1].mu], min_distance
+        if return_stats:
+            return min_distance < 2, [xd[0].mu, xd[1].mu], min_distance
+        return min_distance < 2
     
     def error_sample_bootstrap_range_test(self, labels, g, n, return_stats):
         # we bootstrap the dense core and get a sample from the error sampler for each bootstrap
