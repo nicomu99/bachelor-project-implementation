@@ -261,19 +261,38 @@ class VelocityTester:
 
         return data_new[['U', 'V', 'W']]
     
-    def error_sample_ttest(self, labels, g, n, return_stats=False):
+    def error_sample_ttest(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a t-test on the error samples of two clusters.
+        
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1: int
+            Label of the first cluster
+        cluster2: int
+            Label of the second cluster
+        return_stats : bool
+            Return the statistics of the test
+            
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise"""
+
         # get the error sample for both clusters
-        err_sample = []
-        for cluster in [g, n]:
-            cluster_index = labels == cluster
-            err_sample.append(self.get_error_sample(cluster_index))
+        err_sample = [
+            self.get_error_sample(labels == cluster)
+            for cluster in [cluster1, cluster2]
+        ]
 
         # calculate a t-test on the error samples
-        _, pvalues = ttest_ind(err_sample[0], err_sample[1], equal_var=False)
+        t_stat, pvalues = ttest_ind(*err_sample, equal_var=False)
 
         if return_stats:
-            return self.is_same_velocity(pvalues), err_sample, pvalues
-        return self.is_same_velocity(pvalues), err_sample
+            return self.is_same_velocity(pvalues), err_sample, pvalues, t_stat
+        return self.is_same_velocity(pvalues)
     
     def xd_mean_distance_sample_distance(self, labels, g, n, return_stats=False):
         # we need the error sampler for both clusters to generate new samples
