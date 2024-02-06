@@ -8,49 +8,72 @@ import sys
 sys.path.append('/home/nico/VSCodeRepos/SigMA')
 from NoiseRemoval.bulk_velocity_solver_matrix import dense_sample, bootstrap_bulk_velocity_solver_matrix
 from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity, optimize_velocity
-from NoiseRemoval.xd_special import XDSingleCluster
+from NoiseRemoval.xd_outlier import XDOutlier
 from miscellaneous.covariance_trafo_sky2gal import transform_covariance_shper2gal
 from miscellaneous.error_sampler import ErrorSampler
 
 
 class VelocityTester:
-    def __init__(self, data, weights, testing_mode):
+    def __init__(self, data, weights, testing_mode, err_sampler=None):
         self.data = data
         self.testing_mode = testing_mode
         self.weights = weights
+        self.error_sampler = err_sampler
     
-    def run_test(self, labels, g, n, err_sampler=None, return_pvalues=False):
-        if self.testing_mode == 'ttest':
-            return self.ttest(labels, g, n, return_pvalues)
+    def run_test(self, labels, g, n, return_stats=False):
+        if self.testing_mode   == 'ttest':
+            return self.ttest                               (labels, g, n, return_stats)
         elif self.testing_mode == 'bootstrap_range_test':
-            return self.bootstrap_range_test(labels, g, n, return_pvalues)
+            return self.bootstrap_range_test                (labels, g, n, return_stats)
         elif self.testing_mode == 'xd_mean':
-            return self.xd_mean(labels, g, n, err_sampler, return_pvalues)
+            return self.xd_mean                             (labels, g, n, return_stats)
         elif self.testing_mode == 'error_sample_ttest':
-            return self.error_sample_ttest(labels, g, n, return_pvalues)
+            return self.error_sample_ttest                  (labels, g, n, return_stats)
         elif self.testing_mode == 'xd_mean_sample_distance':
-            return self.xd_mean_sample_distance(labels, g, n, err_sampler, return_pvalues)
+            return self.xd_mean_sample_distance             (labels, g, n, return_stats)
+        elif self.testing_mode == 'error_sample_bootstrap_range_test':
+            return self.error_sample_bootstrap_range_test   (labels, g, n, return_stats)
+        else:
+            raise ValueError("Invalid testing mode")
 
 
-    def ttest(self, labels, g, n, return_pvalues=False):
-        # calculate the velocities for both groups
-        velocity_results = []
-        for cluster in [g, n]:
-            velocity_results.append(
-                calculate_velocity(
-                    self.data[labels == cluster], 
-                    self.weights[labels == cluster]
-                )
+    def ttest(self, labels, cluster1, cluster2, return_stats=False):
+        """
+        Perform a t-test on the velocities of two clusters
+
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster1 : int
+            Label of the first cluster
+        cluster2 : int
+            Label of the second cluster
+        return_stats : bool
+            Return the statistics of the test
+
+        Returns
+        -------
+        bool
+            True if the velocities are the same, False otherwise
+        """
+        # calculate the velocities for both clusters
+        velocity_results = [
+            calculate_velocity(
+                self.data[labels == cluster], 
+                self.weights[labels == cluster]
             )
+            for cluster in [cluster1, cluster2]
+        ]
 
         # calculate the t-statistic and p-value
-        _, pvalues = ttest_ind(velocity_results[0], velocity_results[1], equal_var=False)
+        t_stat, pvalues = ttest_ind(*velocity_results, equal_var=False)
 
-        if return_pvalues:
-            return self.is_same_velocity(pvalues), velocity_results, pvalues
-        return self.is_same_velocity(pvalues), velocity_results
+        if return_stats:
+            return self.is_same_velocity(pvalues), velocity_results, {'pvalues': pvalues, 'stats':t_stat}
+        return self.is_same_velocity(pvalues)
     
-    def bootstrap_range_test(self, labels, g, n, return_pvalues=False):
+    def bootstrap_range_test(self, labels, g, n, return_stats=False):
         # calculate the velocities for both groups
         velocity_results = []
         for cluster in [g, n]:
@@ -81,7 +104,7 @@ class VelocityTester:
                 is_same_velocity = False
                 break
 
-        if return_pvalues:
+        if return_stats:
             return is_same_velocity, velocity_results, confidence_interval
         return is_same_velocity, velocity_results
     
@@ -89,19 +112,19 @@ class VelocityTester:
     def is_same_velocity(pvalues):
         return np.all(pvalues > 0.05)
     
-    def get_xd(self, err_sampler, cluster_index):
+    def get_xd(self, cluster_index):
         # Written by Sebastian Ratzenböck
         # get dense sample
         dense_core = dense_sample(self.weights[cluster_index])
 
         c_vel = ['U', 'V', 'W']
         X = self.data[cluster_index].loc[dense_core, c_vel].values
-        C = err_sampler.C[cluster_index][dense_core, 3:, 3:]
+        C = self.error_sampler.C[cluster_index][dense_core, 3:, 3:]
 
         ra, dec, plx = self.data[cluster_index].loc[dense_core, ['ra', 'dec', 'parallax']].values.T
         # Compute covariance matrix in Galactic coordinates
         C_uvw = transform_covariance_shper2gal(ra, dec, plx, C)     
-        xd = XDSingleCluster(max_iter=200, tol=1e-3).fit(X, C_uvw)
+        xd = XDOutlier().fit(X, Xerr)
         return xd
     
     @staticmethod
@@ -118,12 +141,12 @@ class VelocityTester:
 
         return distance.mahalanobis(x, mu, iv)
     
-    def xd_mean(self, labels, g, n, err_sampler, return_pvalues=False):
+    def xd_mean(self, labels, g, n, return_stats=False):
         # for each cluster, get the xd object
         xd = []
         for cluster in [g, n]:
             cluster_index = labels == cluster
-            xd.append(self.get_xd(err_sampler, cluster_index))
+            xd.append(self.get_xd(cluster_index))
 
         # get the mahalanobis distance between the two clusters and maximize it
         max_mahalanobis_distance = max(
@@ -134,9 +157,9 @@ class VelocityTester:
         return max_mahalanobis_distance < 2, [xd[0].mu, xd[1].mu], max_mahalanobis_distance
     
         
-    def get_error_sample(self, cluster_index):
+    def get_error_sample(self, data):
         # generate a new sampler on the cluster data
-        err_sampler = ErrorSampler(self.data[cluster_index])
+        err_sampler = ErrorSampler(data)
         err_sampler.build_covariance_matrix()
         # Create sample from errors
         cols = ['X', 'Y', 'Z', 'U', 'V', 'W']
@@ -144,7 +167,7 @@ class VelocityTester:
 
         return data_new[['U', 'V', 'W']]
     
-    def error_sample_ttest(self, labels, g, n, return_pvalues=False):
+    def error_sample_ttest(self, labels, g, n, return_stats=False):
         # get the error sample for both clusters
         err_sample = []
         for cluster in [g, n]:
@@ -154,11 +177,11 @@ class VelocityTester:
         # calculate a t-test on the error samples
         _, pvalues = ttest_ind(err_sample[0], err_sample[1], equal_var=False)
 
-        if return_pvalues:
+        if return_stats:
             return self.is_same_velocity(pvalues), err_sample, pvalues
         return self.is_same_velocity(pvalues), err_sample
     
-    def xd_mean_sample_distance(self, labels, g, n, err_sampler, return_pvalues=False):
+    def xd_mean_sample_distance(self, labels, g, n, return_stats=False):
         # we need the error sampler for both clusters to generate new samples
         # we need the extreme deconvolution to calculate the mahalanobis distance
         # we then calculate the maximal distance from each cluster to the mean of the other cluster
@@ -168,7 +191,7 @@ class VelocityTester:
         for cluster in [g, n]:
             cluster_index = labels == cluster
             samples.append(self.get_error_sample(cluster_index))
-            xd.append(self.get_xd(err_sampler, cluster_index))
+            xd.append(self.get_xd(self.error_sampler, cluster_index))
 
         # calculate the maximal distance between each point in the samples and the mean of the other cluster
         distances = []
@@ -188,3 +211,47 @@ class VelocityTester:
         min_distance = min(distances)
 
         return min_distance < 2, [xd[0].mu, xd[1].mu], min_distance
+    
+    def error_sample_bootstrap_range_test(self, labels, g, n, return_stats):
+        # we bootstrap the dense core and get a sample from the error sampler for each bootstrap
+        # then we calculate the velocity for each bootstrap and finally report the confidence interval
+        # of the differences between the velocities
+
+        # get the dense core
+        dense_core_g = dense_sample(self.weights[labels == g])
+        dense_core_n = dense_sample(self.weights[labels == n])
+
+        # get the data of the dense core
+        data_g = self.data[labels == g].loc[dense_core_g]
+        data_n = self.data[labels == n].loc[dense_core_n]
+
+        velocity_differences = []
+        for i in range(100):
+            # get a bootstrap sample from data_g and data_n
+            bootstrap_g = data_g.sample(n=len(data_g) - 1, replace=True)
+            bootstrap_n = data_n.sample(n=len(data_n) - 1, replace=True)
+
+            # print(bootstrap_g.shape)
+            # print(bootstrap_n.shape)
+
+            # get the error sample for both clusters
+            err_sample_mean = []
+            for cluster in [bootstrap_g, bootstrap_n]:
+                err_sample_mean.append(np.mean(self.get_error_sample(cluster), axis=0))
+            
+            # calculate the difference
+            velocity_differences.append(err_sample_mean[0] - err_sample_mean[1])
+
+        # calculate the confidence interval
+        confidence_interval = np.percentile(velocity_differences, [2.5, 97.5], axis=0)
+
+        # check if the confidence interval contains 0 for all dimension
+        is_same_velocity = True
+        for i in range(3):
+            if confidence_interval[0][i] > 0 or confidence_interval[1][0] < 0:
+                is_same_velocity = False
+                break
+
+        if return_stats:
+            return is_same_velocity, velocity_differences, confidence_interval
+        return is_same_velocity, velocity_differences
