@@ -313,23 +313,26 @@ class VelocityTester:
             True if the velocities are the same, False otherwise
         """
 
-        samples, xd = [], []
+        xd = [], []
         for cluster in [cluster1, cluster2]:
             cluster_index = labels == cluster
-            samples.append(self.get_error_sample(cluster_index))
             xd.append(self.get_xd(self.error_sampler, cluster_index))
 
         # calculate the maximal distance between each point in the samples and the mean of the other cluster
         distances = []
-        for i in range(2):
+        j = 1
+        for cluster in [cluster1, cluster2]:
+            cluster_index = labels == cluster
+            # calculate the mahalanobis distance between all points in one cluster and the mean of the other cluster
             distances.append(
-                np.max(
+                max(
                     [
-                        self.calculate_distance(xd[i].V, xd[i].mu, sample)
-                        for sample in samples[1 - i].values
+                        self.calculate_distance(xd[j][1], xd[j][0], x)
+                        for x in self.data[cluster_index].loc[:, ['U', 'V', 'W']].values
                     ]
                 )
             )
+            j -= 1
 
         # take the minimum of the two distances
         min_distance = min(distances)
