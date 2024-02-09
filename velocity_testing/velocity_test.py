@@ -34,11 +34,11 @@ class VelocityTester:
         elif self.testing_mode == 'xd_mean_distance':
             return self.xd_mean_distance                    (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_sample_ttest':
-            return self.xd_sample_ttest                  (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.xd_sample_ttest                     (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance_sample_distance':
             return self.xd_mean_distance_sample_distance    (labels, old_cluster, new_cluster, clusterer, return_stats)
-        elif self.testing_mode == 'error_sample_bootstrap_range_test':
-            return self.error_sample_bootstrap_range_test   (labels, old_cluster, new_cluster, clusterer, return_stats)
+        elif self.testing_mode == 'xd_sample_bootstrap_range_test':
+            return self.xd_sample_bootstrap_range_test      (labels, old_cluster, new_cluster, clusterer, return_stats)
         else:
             raise ValueError("Invalid testing mode")
         
@@ -423,9 +423,9 @@ class VelocityTester:
             return min_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'distance': min_distance}
         return min_distance < 2, mean_deviation
     
-    def error_sample_bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats):
+    def xd_sample_bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats):
         """
-        Perform a range-based bootstrap test on the error samples of two clusters.
+        Perform a range-based bootstrap test on the samples taken from the xd.
 
         Parameters
         ----------
@@ -444,31 +444,20 @@ class VelocityTester:
             True if the velocities are the same, False otherwise
         """
 
-        # we bootstrap the dense core and get a sample from the error sampler for each bootstrap
-        # then we calculate the velocity for each bootstrap and finally report the confidence interval
-        # of the differences between the velocities
-
-        # get the dense core
-        dense_cores = [
-            dense_sample(self.weights[labels == cluster])
+        # get samples
+        velocity_samples = [
+            self.create_cluster_sample(self.data[labels == cluster], clusterer)
             for cluster in [old_cluster, new_cluster]
-        ]
-
-        # get the data of the dense core
-        dense_core_data = [
-            self.data[labels == cluster].loc[dense_cores[i]]
-            for i, cluster in enumerate([old_cluster, new_cluster])
         ]
 
         velocity_differences = []
         for i in range(100):
-            err_sample_mean = []
-            for core_data in dense_core_data:
-                bootstrap_sample = core_data.sample(n=len(core_data) - 1, replace=True)
-                err_sample = self.get_error_sample(bootstrap_sample)
-                err_sample_mean.append(np.mean(err_sample, axis=0))
+            sample_mean = []
+            for sample in velocity_samples:
+                bootstrapped_sample = sample.sample(n=len(sample) - 1, replace=True)
+                sample_mean.append(np.mean(bootstrapped_sample, axis=0))
 
-            velocity_differences.append(err_sample_mean[0] - err_sample_mean[1])
+            velocity_differences.append(sample_mean[0] - sample_mean[1])
 
         # calculate the confidence interval
         confidence_interval = np.percentile(velocity_differences, [2.5, 97.5], axis=0)
