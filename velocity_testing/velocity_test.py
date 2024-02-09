@@ -42,7 +42,9 @@ class VelocityTester:
         else:
             raise ValueError("Invalid testing mode")
         
-
+    def update_testing_mode(self, testing_mode):
+        self.testing_mode = testing_mode
+        
     def get_bootstrap_velocities(self, labels, cluster, n_bootstraps=100):
         """
         Get the bootstrap velocities for a cluster
