@@ -108,7 +108,7 @@ class VelocityTester:
         t_stat, pvalues = ttest_ind(*velocity_results, equal_var=False)
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
+        mean_deviation = [np.mean(np.std(velocity_results[i], axis=0)) for i in range(2)]
 
         if return_stats:
             return self.is_same_velocity(pvalues), mean_deviation, {'velocity_results': velocity_results, 'pvalues': pvalues, 'stats':t_stat}
@@ -162,7 +162,8 @@ class VelocityTester:
         pvalue *= 2
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
+        mean_deviation = [np.mean(np.std(velocity_results[i], axis=0)) for i in range(2)]
+
 
         # the pvalue has to be smaller than 0.05 to reject the null hypothesis
         if return_stats:
@@ -204,7 +205,7 @@ class VelocityTester:
         confidence_interval = np.percentile(velocity_differences_bootstrap, [2.5, 97.5], axis=0)
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
+        mean_deviation = [np.mean(np.std(velocity_results[i], axis=0)) for i in range(2)]
 
         # check if the confidence interval contains 0 for all dimension
         is_same_velocity = True
@@ -243,6 +244,11 @@ class VelocityTester:
             
             cluster_bool_array = np.isin(data_idx, idx_cluster)
             return cluster_bool_array
+        
+    def get_mean_std_covariance(self, V):
+        # Written by Sebastian Ratzenböck
+        eigvals = np.linalg.eigvals(V)
+        return np.sqrt(np.mean(eigvals))
     
     def get_xd(self, cluster_index, clusterer):
         # Written by Sebastian Ratzenböck
@@ -314,8 +320,7 @@ class VelocityTester:
         ])
 
         # calculate the mean deviation for new_cluster
-        dense_core = self.extract_cluster_single(labels == new_cluster, clusterer)
-        mean_deviation = np.mean(np.std(self.data.loc[dense_core, ['U', 'V', 'W']].values, axis=0))
+        mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
 
         if return_stats:
             return max_mahalanobis_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'mahalanobis_distance': max_mahalanobis_distance}
@@ -361,7 +366,7 @@ class VelocityTester:
         t_stat, pvalues = ttest_ind(*err_sample, equal_var=False)
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = np.mean(np.std(err_sample[1], axis=0))
+        mean_deviation = [np.mean(np.std(err_sample[i], axis=0)) for i in range(2)]
 
         if return_stats:
             return self.is_same_velocity(pvalues), mean_deviation, {'err_samples': err_sample, 'p_values': pvalues, 't_stat': t_stat}
@@ -416,8 +421,7 @@ class VelocityTester:
         min_distance = min(distances)
 
         # calculate the mean deviation for new_cluster
-        dense_core = self.extract_cluster_single(labels == new_cluster, clusterer)
-        mean_deviation = np.mean(np.std(self.data.loc[dense_core, ['U', 'V', 'W']].values, axis=0))
+        mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
 
         if return_stats:
             return min_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'distance': min_distance}
@@ -481,7 +485,7 @@ class VelocityTester:
                 break
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = np.mean(np.std(err_sample_mean[1], axis=0))
+        mean_deviation = [np.mean(np.std(self.data[labels == cluster].loc[['U', 'V', 'W']], axis=0)) for cluster in [old_cluster, new_cluster]]
 
         if return_stats:
             return is_same_velocity, mean_deviation, {'velocity_difference': velocity_differences, 'confidence_interval': confidence_interval}
