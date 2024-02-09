@@ -22,6 +22,7 @@ class VelocityTester:
         self.weights = weights
         self.error_sampler = err_sampler
         self.clusterer = clusterer
+        self.bootstrap_cache = {}
     
     def run_test(self, labels, old_cluster, new_cluster, clusterer=None, return_stats=False):
         if self.testing_mode   == 'ttest':
@@ -40,6 +41,39 @@ class VelocityTester:
             return self.error_sample_bootstrap_range_test   (labels, old_cluster, new_cluster, clusterer, return_stats)
         else:
             raise ValueError("Invalid testing mode")
+        
+
+    def get_bootstrap_velocities(self, labels, cluster, n_bootstraps=100):
+        """
+        Get the bootstrap velocities for a cluster
+
+        Parameters
+        ----------
+        labels : np.array
+            The labels of the SigMA clustering
+        cluster : int
+            The label of the cluster
+        n_bootstraps : int
+            The number of bootstraps
+
+        Returns
+        -------
+        np.array
+            The velocities of the cluster for each bootstrap
+        """
+        # the cache helps speed up the calculation
+        cache_key = labels[labels == cluster].tostring()
+        if cache_key in self.bootstrap_cache:
+            return self.bootstrap_cache[cache_key]
+
+        sol = bootstrap_bulk_velocity_solver_matrix(
+            self.data[labels == cluster], 
+            self.weights[labels == cluster],
+            n_bootstraps=n_bootstraps
+        )
+        cluster_velocity = np.array([s.x[:3] for s in sol])
+        self.bootstrap_cache[cache_key] = cluster_velocity
+        return cluster_velocity
 
 
     def ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
@@ -66,12 +100,7 @@ class VelocityTester:
         n_bootstraps = 100
         velocity_results = []
         for cluster in [old_cluster, new_cluster]:
-            sol = bootstrap_bulk_velocity_solver_matrix(
-                self.data[labels == cluster], 
-                self.weights[labels == cluster],
-                n_bootstraps=n_bootstraps
-            )
-            velocity_results.append(np.array([s.x[:3] for s in sol]))
+            velocity_results.append(self.get_bootstrap_velocities(labels, cluster, n_bootstraps))
 
         # calculate the t-statistic and p-value
         t_stat, pvalues = ttest_ind(*velocity_results, equal_var=False)
@@ -116,17 +145,12 @@ class VelocityTester:
         n_bootstraps = 100
         velocity_results = []
         for cluster in [old_cluster, new_cluster]:
-            sol = bootstrap_bulk_velocity_solver_matrix(
-                self.data[labels == cluster], 
-                self.weights[labels == cluster],
-                n_bootstraps=n_bootstraps
-            )
-            velocity_results.append(np.array([s.x[:3] for s in sol]))
+            velocity_results.append(self.get_bootstrap_velocities(labels, cluster, n_bootstraps))
 
         # calculate the difference between each bootstrap
         velocity_differences_bootstrap = [
             velocity_results[0][i] - velocity_results[1][i]
-            for i in range(50)
+            for i in range(n_bootstraps)
         ]
 
         pvalue = np.max([
@@ -166,12 +190,7 @@ class VelocityTester:
         n_bootstraps = 100
         velocity_results = []
         for cluster in [old_cluster, new_cluster]:
-            sol = bootstrap_bulk_velocity_solver_matrix(
-                self.data[labels == cluster], 
-                self.weights[labels == cluster],
-                n_bootstraps=n_bootstraps
-            )
-            velocity_results.append(np.array([s.x[:3] for s in sol]))
+            velocity_results.append(self.get_bootstrap_velocities(labels, cluster, n_bootstraps))
 
         # calculate the difference between each bootstrap
         velocity_differences_bootstrap = [
