@@ -33,8 +33,8 @@ class VelocityTester:
             return self.bootstrap_range_test                (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance':
             return self.xd_mean_distance                    (labels, old_cluster, new_cluster, clusterer, return_stats)
-        elif self.testing_mode == 'error_sample_ttest':
-            return self.error_sample_ttest                  (labels, old_cluster, new_cluster, clusterer, return_stats)
+        elif self.testing_mode == 'xd_sample_ttest':
+            return self.xd_sample_ttest                  (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance_sample_distance':
             return self.xd_mean_distance_sample_distance    (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'error_sample_bootstrap_range_test':
@@ -327,17 +327,12 @@ class VelocityTester:
             return max_mahalanobis_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'mahalanobis_distance': max_mahalanobis_distance}
         return max_mahalanobis_distance < 2, mean_deviation
         
-    def get_error_sample(self, data):
-        # generate a new sampler on the cluster data
-        err_sampler = ErrorSampler(data)
-        err_sampler.build_covariance_matrix()
-        # Create sample from errors
-        cols = ['X', 'Y', 'Z', 'U', 'V', 'W']
-        data_new = pd.DataFrame(err_sampler.spher2cart(err_sampler.new_sample()), columns=cols)
-
-        return data_new[['U', 'V', 'W']]
+    def create_cluster_sample(self, data):
+        xd = self.get_xd(data, self.clusterer)
+        # create samples from a normal distribution using cov and mean
+        return np.random.multivariate_normal(xd[0], xd[1], 500)
     
-    def error_sample_ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
+    def xd_sample_ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a t-test on the error samples of two clusters.
         
@@ -358,19 +353,19 @@ class VelocityTester:
             True if the velocities are the same, False otherwise"""
 
         # get the error sample for both clusters
-        err_sample = [
-            self.get_error_sample(self.data[labels == cluster])
+        cluster_samples = [
+            self.create_cluster_sample(self.data[labels == cluster], clusterer)
             for cluster in [old_cluster, new_cluster]
         ]
 
         # calculate a t-test on the error samples
-        t_stat, pvalues = ttest_ind(*err_sample, equal_var=False)
+        t_stat, pvalues = ttest_ind(*cluster_samples, equal_var=False)
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = [np.mean(np.std(err_sample[i], axis=0)) for i in range(2)]
+        mean_deviation = [np.mean(np.std(cluster_samples[i], axis=0)) for i in range(2)]
 
         if return_stats:
-            return self.is_same_velocity(pvalues), mean_deviation, {'err_samples': err_sample, 'p_values': pvalues, 't_stat': t_stat}
+            return self.is_same_velocity(pvalues), mean_deviation, {'err_samples': cluster_samples, 'p_values': pvalues, 't_stat': t_stat}
         return self.is_same_velocity(pvalues), mean_deviation
     
     def xd_mean_distance_sample_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
