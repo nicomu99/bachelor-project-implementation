@@ -23,26 +23,26 @@ class VelocityTester:
         self.error_sampler = err_sampler
         self.clusterer = clusterer
     
-    def run_test(self, labels, g, n, clusterer=None, return_stats=False):
+    def run_test(self, labels, old_cluster, new_cluster, clusterer=None, return_stats=False):
         if self.testing_mode   == 'ttest':
-            return self.ttest                               (labels, g, n, clusterer, return_stats)
+            return self.ttest                               (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'bootstrap_difference_test':
-            return self.bootstrap_difference_test           (labels, g, n, clusterer, return_stats)
+            return self.bootstrap_difference_test           (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'bootstrap_range_test':
-            return self.bootstrap_range_test                (labels, g, n, clusterer, return_stats)
+            return self.bootstrap_range_test                (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance':
-            return self.xd_mean_distance                    (labels, g, n, clusterer, return_stats)
+            return self.xd_mean_distance                    (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'error_sample_ttest':
-            return self.error_sample_ttest                  (labels, g, n, clusterer, return_stats)
+            return self.error_sample_ttest                  (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance_sample_distance':
-            return self.xd_mean_distance_sample_distance    (labels, g, n, clusterer, return_stats)
+            return self.xd_mean_distance_sample_distance    (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'error_sample_bootstrap_range_test':
-            return self.error_sample_bootstrap_range_test   (labels, g, n, clusterer, return_stats)
+            return self.error_sample_bootstrap_range_test   (labels, old_cluster, new_cluster, clusterer, return_stats)
         else:
             raise ValueError("Invalid testing mode")
 
 
-    def ttest(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a t-test on the velocities of two clusters
 
@@ -50,9 +50,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1 : int
+        old_cluster : int
             Label of the first cluster
-        cluster2 : int
+        new_cluster : int
             Label of the second cluster
         return_stats : bool
             Return the statistics of the test
@@ -65,7 +65,7 @@ class VelocityTester:
         # calculate the velocities for both clusters
         n_bootstraps = 100
         velocity_results = []
-        for cluster in [cluster1, cluster2]:
+        for cluster in [old_cluster, new_cluster]:
             sol = bootstrap_bulk_velocity_solver_matrix(
                 self.data[labels == cluster], 
                 self.weights[labels == cluster],
@@ -76,14 +76,14 @@ class VelocityTester:
         # calculate the t-statistic and p-value
         t_stat, pvalues = ttest_ind(*velocity_results, equal_var=False)
 
-        # calculate the mean deviation for cluster2
+        # calculate the mean deviation for new_cluster
         mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
 
         if return_stats:
             return self.is_same_velocity(pvalues), mean_deviation, {'velocity_results': velocity_results, 'pvalues': pvalues, 'stats':t_stat}
         return self.is_same_velocity(pvalues), mean_deviation
     
-    def bootstrap_difference_test(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def bootstrap_difference_test(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a two-sided bootstrap test.
         
@@ -91,9 +91,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1 : int
+        old_cluster : int
             Label of the first cluster
-        cluster2 : int
+        new_cluster : int
             Label of the second cluster
         return_stats : bool
         
@@ -104,7 +104,7 @@ class VelocityTester:
 
         # calculate the true velocities difference
         velocity_true = []
-        for cluster in [cluster1, cluster2]:
+        for cluster in [old_cluster, new_cluster]:
             sol = bulk_velocity_solver_matrix(
                 self.data[labels == cluster], 
                 self.weights[labels == cluster]
@@ -115,7 +115,7 @@ class VelocityTester:
         # calculate the velocities for both groups
         n_bootstraps = 100
         velocity_results = []
-        for cluster in [cluster1, cluster2]:
+        for cluster in [old_cluster, new_cluster]:
             sol = bootstrap_bulk_velocity_solver_matrix(
                 self.data[labels == cluster], 
                 self.weights[labels == cluster],
@@ -135,7 +135,7 @@ class VelocityTester:
         ])
         pvalue *= 2
 
-        # calculate the mean deviation for cluster2
+        # calculate the mean deviation for new_cluster
         mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
 
         # the pvalue has to be smaller than 0.05 to reject the null hypothesis
@@ -143,7 +143,7 @@ class VelocityTester:
             return pvalue < 0.05, mean_deviation, {'velocity_difference': velocity_differences_bootstrap, 'pvalue': pvalue}
         return pvalue < 0.05, mean_deviation
     
-    def bootstrap_range_test(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a range-based bootstrap test.
         
@@ -151,9 +151,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1 : int
+        old_cluster : int
             Label of the first cluster
-        cluster2 : int
+        new_cluster : int
             Label of the second cluster
         return_stats : bool
         
@@ -165,7 +165,7 @@ class VelocityTester:
         # calculate the velocities for both groups
         n_bootstraps = 100
         velocity_results = []
-        for cluster in [cluster1, cluster2]:
+        for cluster in [old_cluster, new_cluster]:
             sol = bootstrap_bulk_velocity_solver_matrix(
                 self.data[labels == cluster], 
                 self.weights[labels == cluster],
@@ -182,7 +182,7 @@ class VelocityTester:
         # calculate the confidence interval
         confidence_interval = np.percentile(velocity_differences_bootstrap, [2.5, 97.5], axis=0)
 
-        # calculate the mean deviation for cluster2
+        # calculate the mean deviation for new_cluster
         mean_deviation = np.mean(np.std(velocity_results[1], axis=0))
 
         # check if the confidence interval contains 0 for all dimension
@@ -252,7 +252,7 @@ class VelocityTester:
 
         return distance.mahalanobis(x, mu, iv)
     
-    def xd_mean_distance(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def xd_mean_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a test based on the mahalanobis distance between the means of two clusters.
         
@@ -260,9 +260,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1 : int
+        old_cluster : int
             Label of the first cluster 
-        cluster2 : int
+        new_cluster : int
             Label of the second cluster
         return_stats : bool
             Return the statistics of the test
@@ -277,7 +277,7 @@ class VelocityTester:
         try:
             xd = [
                 self.get_xd(labels == cluster, clusterer)
-                for cluster in [cluster1, cluster2]
+                for cluster in [old_cluster, new_cluster]
             ]
         except:
             return False, 1000, {'error': 'Cluster too small'}
@@ -292,8 +292,8 @@ class VelocityTester:
             VelocityTester.calculate_distance(xd[1][1], xd[1][0], xd[0][0])
         ])
 
-        # calculate the mean deviation for cluster2
-        dense_core = self.extract_cluster_single(labels == cluster2, clusterer)
+        # calculate the mean deviation for new_cluster
+        dense_core = self.extract_cluster_single(labels == new_cluster, clusterer)
         mean_deviation = np.mean(np.std(self.data.loc[dense_core, ['U', 'V', 'W']].values, axis=0))
 
         if return_stats:
@@ -310,7 +310,7 @@ class VelocityTester:
 
         return data_new[['U', 'V', 'W']]
     
-    def error_sample_ttest(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def error_sample_ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a t-test on the error samples of two clusters.
         
@@ -318,9 +318,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1: int
+        old_cluster: int
             Label of the first cluster
-        cluster2: int
+        new_cluster: int
             Label of the second cluster
         return_stats : bool
             Return the statistics of the test
@@ -333,20 +333,20 @@ class VelocityTester:
         # get the error sample for both clusters
         err_sample = [
             self.get_error_sample(self.data[labels == cluster])
-            for cluster in [cluster1, cluster2]
+            for cluster in [old_cluster, new_cluster]
         ]
 
         # calculate a t-test on the error samples
         t_stat, pvalues = ttest_ind(*err_sample, equal_var=False)
 
-        # calculate the mean deviation for cluster2
+        # calculate the mean deviation for new_cluster
         mean_deviation = np.mean(np.std(err_sample[1], axis=0))
 
         if return_stats:
             return self.is_same_velocity(pvalues), mean_deviation, {'err_samples': err_sample, 'p_values': pvalues, 't_stat': t_stat}
         return self.is_same_velocity(pvalues), mean_deviation
     
-    def xd_mean_distance_sample_distance(self, labels, cluster1, cluster2, clusterer, return_stats=False):
+    def xd_mean_distance_sample_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
         """
         Perform a test based on the mahalanobis distance between the means of two clusters.
 
@@ -354,9 +354,9 @@ class VelocityTester:
         ----------
         labels : np.array
             The labels of the SigMA clustering
-        cluster1 : int
+        old_cluster : int
             Label of the first cluster
-        cluster2 : int
+        new_cluster : int
             Label of the second cluster
         return_stats : bool
             Return the statistics of the test
@@ -369,7 +369,7 @@ class VelocityTester:
 
         xd = []
         try:
-            for cluster in [cluster1, cluster2]:
+            for cluster in [old_cluster, new_cluster]:
                 cluster_index = labels == cluster
                 xd.append(self.get_xd(cluster_index, clusterer))
         except:
@@ -378,7 +378,7 @@ class VelocityTester:
         # calculate the maximal distance between each point in the samples and the mean of the other cluster
         distances = []
         j = 1
-        for cluster in [cluster1, cluster2]:
+        for cluster in [old_cluster, new_cluster]:
             cluster_index = labels == cluster
             # calculate the mahalanobis distance between all points in one cluster and the mean of the other cluster
             distances.append(
@@ -394,15 +394,15 @@ class VelocityTester:
         # take the minimum of the two distances
         min_distance = min(distances)
 
-        # calculate the mean deviation for cluster2
-        dense_core = self.extract_cluster_single(labels == cluster2, clusterer)
+        # calculate the mean deviation for new_cluster
+        dense_core = self.extract_cluster_single(labels == new_cluster, clusterer)
         mean_deviation = np.mean(np.std(self.data.loc[dense_core, ['U', 'V', 'W']].values, axis=0))
 
         if return_stats:
             return min_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'distance': min_distance}
         return min_distance < 2, mean_deviation
     
-    def error_sample_bootstrap_range_test(self, labels, cluster1, cluster2, clusterer, return_stats):
+    def error_sample_bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats):
         """
         Perform a range-based bootstrap test on the error samples of two clusters.
 
@@ -430,13 +430,13 @@ class VelocityTester:
         # get the dense core
         dense_cores = [
             dense_sample(self.weights[labels == cluster])
-            for cluster in [cluster1, cluster2]
+            for cluster in [old_cluster, new_cluster]
         ]
 
         # get the data of the dense core
         dense_core_data = [
             self.data[labels == cluster].loc[dense_cores[i]]
-            for i, cluster in enumerate([cluster1, cluster2])
+            for i, cluster in enumerate([old_cluster, new_cluster])
         ]
 
         velocity_differences = []
@@ -459,7 +459,7 @@ class VelocityTester:
                 is_same_velocity = False
                 break
 
-        # calculate the mean deviation for cluster2
+        # calculate the mean deviation for new_cluster
         mean_deviation = np.mean(np.std(err_sample_mean[1], axis=0))
 
         if return_stats:
