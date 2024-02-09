@@ -66,6 +66,7 @@ class VelocityTester:
         # the cache helps speed up the calculation
         cache_key = labels[labels == cluster].tostring()
         if cache_key in self.bootstrap_cache:
+            print('Cluster found in Cache')
             return self.bootstrap_cache[cache_key]
 
         sol = bootstrap_bulk_velocity_solver_matrix(
@@ -307,11 +308,11 @@ class VelocityTester:
                 for cluster in [old_cluster, new_cluster]
             ]
         except:
-            return False, 1000, {'error': 'Cluster too small'}
+            return False, [1000, 1000], {'error': 'Cluster too small'}
 
         # if one of the clusters is too small, return False
         if xd[0] is None or xd[1] is None:
-            return False, 1000, {'error': 'Cluster too small'}
+            return False, [1000, 1000], {'error': 'Cluster too small'}
 
         # get the mahalanobis distance between the two clusters and maximize it
         max_mahalanobis_distance = max([
@@ -399,7 +400,7 @@ class VelocityTester:
                 cluster_index = labels == cluster
                 xd.append(self.get_xd(cluster_index, clusterer))
         except:
-            return False, 1000, {'error': 'Cluster too small'}
+            return False, [1000, 1000], {'error': 'Cluster too small'}
 
         # calculate the maximal distance between each point in the samples and the mean of the other cluster
         distances = []
@@ -485,7 +486,7 @@ class VelocityTester:
                 break
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = [np.mean(np.std(self.data[labels == cluster].loc[['U', 'V', 'W']], axis=0)) for cluster in [old_cluster, new_cluster]]
+        mean_deviation = [np.mean(np.std(self.data[labels == cluster].loc[:, ['U', 'V', 'W']], axis=0)) for cluster in [old_cluster, new_cluster]]
 
         if return_stats:
             return is_same_velocity, mean_deviation, {'velocity_difference': velocity_differences, 'confidence_interval': confidence_interval}
