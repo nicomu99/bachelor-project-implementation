@@ -460,7 +460,7 @@ class VelocityTester:
         for i in range(100):
             sample_mean = []
             for sample in velocity_samples:
-                bootstrapped_sample = sample.sample(n=len(sample) - 1, replace=True)
+                bootstrapped_sample = sample[np.random.choice(len(sample), len(sample) - 1, replace=True)]
                 sample_mean.append(np.mean(bootstrapped_sample, axis=0))
 
             velocity_differences.append(sample_mean[0] - sample_mean[1])
