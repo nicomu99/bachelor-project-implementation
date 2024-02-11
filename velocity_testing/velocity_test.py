@@ -353,10 +353,13 @@ class VelocityTester:
             True if the velocities are the same, False otherwise"""
 
         # get the error sample for both clusters
-        cluster_samples = [
-            self.create_cluster_sample(labels == cluster, clusterer)
-            for cluster in [old_cluster, new_cluster]
-        ]
+        try:
+            cluster_samples = [
+                self.create_cluster_sample(labels == cluster, clusterer)
+                for cluster in [old_cluster, new_cluster]
+            ]
+        except:
+            return False, [1000, 1000], {'error': 'Cluster too small'}
 
         # calculate a t-test on the error samples
         t_stat, pvalues = ttest_ind(*cluster_samples, equal_var=False)
@@ -445,10 +448,13 @@ class VelocityTester:
         """
 
         # get samples
-        velocity_samples = [
-            self.create_cluster_sample(labels == cluster, clusterer)
-            for cluster in [old_cluster, new_cluster]
-        ]
+        try:
+            velocity_samples = [
+                self.create_cluster_sample(labels == cluster, clusterer)
+                for cluster in [old_cluster, new_cluster]
+            ]
+        except:
+            return False, [1000, 1000], {'error': 'Cluster too small'}
 
         velocity_differences = []
         for i in range(100):
