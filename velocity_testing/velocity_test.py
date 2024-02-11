@@ -327,8 +327,8 @@ class VelocityTester:
             return max_mahalanobis_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'mahalanobis_distance': max_mahalanobis_distance}
         return max_mahalanobis_distance < 2, mean_deviation
         
-    def create_cluster_sample(self, data):
-        xd = self.get_xd(data, self.clusterer)
+    def create_cluster_sample(self, cluster_index, clusterer):
+        xd = self.get_xd(cluster_index, clusterer)
         # create samples from a normal distribution using cov and mean
         return np.random.multivariate_normal(xd[0], xd[1], 500)
     
@@ -354,7 +354,7 @@ class VelocityTester:
 
         # get the error sample for both clusters
         cluster_samples = [
-            self.create_cluster_sample(self.data[labels == cluster], clusterer)
+            self.create_cluster_sample(labels == cluster, clusterer)
             for cluster in [old_cluster, new_cluster]
         ]
 
@@ -446,7 +446,7 @@ class VelocityTester:
 
         # get samples
         velocity_samples = [
-            self.create_cluster_sample(self.data[labels == cluster], clusterer)
+            self.create_cluster_sample(labels == cluster, clusterer)
             for cluster in [old_cluster, new_cluster]
         ]
 
