@@ -1,17 +1,13 @@
-import pandas as pd
 import numpy as np
-from velocity_testing.calculate_velocity import calculate_velocity
 from scipy.stats import ttest_ind
 from scipy.spatial import distance
 from scipy.sparse.csgraph import connected_components
 import sys
 
 sys.path.append('/home/nico/VSCodeRepos/SigMA')
-from NoiseRemoval.bulk_velocity_solver_matrix import dense_sample, bootstrap_bulk_velocity_solver_matrix, bulk_velocity_solver_matrix
-from NoiseRemoval.OptimalVelocity import vr_solver, transform_velocity, optimize_velocity
+from NoiseRemoval.bulk_velocity_solver_matrix import bootstrap_bulk_velocity_solver_matrix, bulk_velocity_solver_matrix
 from NoiseRemoval.xd_outlier import XDOutlier
 from miscellaneous.covariance_trafo_sky2gal import transform_covariance_shper2gal
-from miscellaneous.error_sampler import ErrorSampler
 from NoiseRemoval.RemoveNoiseTransformed import remove_noise_simple
 
 
@@ -108,7 +104,7 @@ class VelocityTester:
         # calculate the t-statistic and p-value
         t_stat, pvalues = ttest_ind(*velocity_results, equal_var=False)
 
-        # calculate the mean deviation for new_cluster
+        # calculate the mean deviation for each cluster
         mean_deviation = [np.mean(np.std(velocity_results[i], axis=0)) for i in range(2)]
 
         if return_stats:
@@ -164,7 +160,6 @@ class VelocityTester:
 
         # calculate the mean deviation for new_cluster
         mean_deviation = [np.mean(np.std(velocity_results[i], axis=0)) for i in range(2)]
-
 
         # the pvalue has to be smaller than 0.05 to reject the null hypothesis
         if return_stats:
@@ -355,7 +350,7 @@ class VelocityTester:
         bool
             True if the velocities are the same, False otherwise"""
 
-        # get the error sample for both clusters
+        # get a cluster sample for both clusters
         try:
             cluster_samples = [
                 self.create_cluster_sample(labels == cluster, clusterer)
@@ -367,7 +362,7 @@ class VelocityTester:
         # calculate a t-test on the error samples
         t_stat, pvalues = ttest_ind(*cluster_samples, equal_var=False)
 
-        # calculate the mean deviation for new_cluster
+        # calculate the mean deviation for both clusters
         mean_deviation = [np.mean(np.std(cluster_samples[i], axis=0)) for i in range(2)]
 
         if return_stats:
