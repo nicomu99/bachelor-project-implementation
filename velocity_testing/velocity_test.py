@@ -315,10 +315,13 @@ class VelocityTester:
             return False, [1000, 1000], {'error': 'Cluster too small'}
 
         # get the mahalanobis distance between the two clusters and maximize it
-        max_mahalanobis_distance = max([
-            VelocityTester.calculate_distance(xd[0][1], xd[0][0], xd[1][0]),
-            VelocityTester.calculate_distance(xd[1][1], xd[1][0], xd[0][0])
-        ])
+        try:
+            max_mahalanobis_distance = max([
+                VelocityTester.calculate_distance(xd[0][1], xd[0][0], xd[1][0]),
+                VelocityTester.calculate_distance(xd[1][1], xd[1][0], xd[0][0])
+            ])
+        except:
+            return False, [1000, 1000], {'error': 'Covariance Matrix is singular'}
 
         # calculate the mean deviation for new_cluster
         mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
@@ -406,14 +409,17 @@ class VelocityTester:
         for cluster in [old_cluster, new_cluster]:
             cluster_index = labels == cluster
             # calculate the mahalanobis distance between all points in one cluster and the mean of the other cluster
-            distances.append(
-                max(
-                    [
-                        self.calculate_distance(xd[j][1], xd[j][0], x)
-                        for x in self.data[cluster_index].loc[:, ['U', 'V', 'W']].values
-                    ]
+            try:
+                distances.append(
+                    max(
+                        [
+                            self.calculate_distance(xd[j][1], xd[j][0], x)
+                            for x in self.data[cluster_index].loc[:, ['U', 'V', 'W']].values
+                        ]
+                    )
                 )
-            )
+            except:
+                return False, [1000, 1000], {'error': 'Covariance Matrix is singular'}
             j -= 1
 
         # take the minimum of the two distances
