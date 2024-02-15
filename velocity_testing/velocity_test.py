@@ -420,7 +420,7 @@ class VelocityTester:
         # take the minimum of the two distances
         min_distance = min(distances)
 
-        # calculate the mean deviation for new_cluster
+        # calculate the mean deviation for both clusters
         mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
 
         if return_stats:
