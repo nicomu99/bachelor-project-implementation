@@ -9,6 +9,7 @@ from NoiseRemoval.bulk_velocity_solver_matrix import bootstrap_bulk_velocity_sol
 from NoiseRemoval.xd_outlier import XDOutlier
 from miscellaneous.covariance_trafo_sky2gal import transform_covariance_shper2gal
 from NoiseRemoval.RemoveNoiseTransformed import remove_noise_simple
+from NoiseRemoval.BulkVelocityClassic import ClassicBV
 
 
 class VelocityTester:
@@ -18,23 +19,32 @@ class VelocityTester:
         self.weights = weights
         self.error_sampler = err_sampler
         self.clusterer = clusterer
+        self.cbve = ClassicBV(method='BFGS')
         self.bootstrap_cache = {}
     
     def run_test(self, labels, old_cluster, new_cluster, clusterer=None, return_stats=False):
         if self.testing_mode   == 'ttest':
-            return self.ttest                               (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.ttest                                   (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'bootstrap_difference_test':
-            return self.bootstrap_difference_test           (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.bootstrap_difference_test               (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'bootstrap_range_test':
-            return self.bootstrap_range_test                (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.bootstrap_range_test                    (labels, old_cluster, new_cluster, clusterer, return_stats)
         elif self.testing_mode == 'xd_mean_distance':
-            return self.xd_mean_distance                    (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.mahalanobis_mean_distance               (labels, old_cluster, new_cluster, clusterer, return_stats, method='xd')
         elif self.testing_mode == 'xd_sample_ttest':
-            return self.xd_sample_ttest                     (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.normal_sample_ttest                     (labels, old_cluster, new_cluster, clusterer, return_stats, method='xd')
         elif self.testing_mode == 'xd_mean_distance_sample_distance':
-            return self.xd_mean_distance_sample_distance    (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.minimax_mean_distance_sample_distance    (labels, old_cluster, new_cluster, clusterer, return_stats, method='xd')
         elif self.testing_mode == 'xd_sample_bootstrap_range_test':
-            return self.xd_sample_bootstrap_range_test      (labels, old_cluster, new_cluster, clusterer, return_stats)
+            return self.normal_sample_bootstrap_range_test      (labels, old_cluster, new_cluster, clusterer, return_stats, method='xd')
+        elif self.testing_mode == 'cbve_mean_distance':
+            return self.mahalanobis_mean_distance               (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
+        elif self.testing_mode == 'cbve_sample_ttest':
+            return self.normal_sample_ttest                     (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
+        elif self.testing_mode == 'cbve_mean_distance_sample_distance':
+            return self.minimax_mean_distance_sample_distance   (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
+        elif self.testing_mode == 'cbve_sample_bootstrap_range_test':
+            return self.normal_sample_bootstrap_range_test      (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
         else:
             raise ValueError("Invalid testing mode")
         
@@ -241,18 +251,13 @@ class VelocityTester:
             cluster_bool_array = np.isin(data_idx, idx_cluster)
             return cluster_bool_array
         
-    def get_mean_std_covariance(self, V):
+    def get_std_from_covariance(self, V):
         # Written by Sebastian Ratzenböck
         eigvals = np.linalg.eigvals(V)
         return np.sqrt(np.mean(eigvals))
     
-    def get_xd(self, cluster_index, clusterer):
+    def get_xd(self, dense_core):
         # Written by Sebastian Ratzenböck
-        # get dense sample
-        dense_core = self.extract_cluster_single(cluster_index, clusterer)
-        # check if dense core only contains False
-        if np.all(dense_core == False):
-            raise ValueError("Cluster too small")
         X = self.data.loc[dense_core, ['U', 'V', 'W']].values
         C_i = self.error_sampler.C[dense_core, 3:, 3:]
         ra, dec, plx = self.data.loc[dense_core, ['ra', 'dec', 'parallax']].values.T
@@ -260,6 +265,23 @@ class VelocityTester:
 
         xd = XDOutlier().fit(X, Xerr)
         return xd.min_entropy_component()
+    
+    def get_classical_bulk_estimate(self, dense_core):
+        return self.cbve.estimate_normal_params(dense_core, method='BFGS')
+    
+    def get_cov_mean(self, cluster_index, clusterer, method='xd'):
+        dense_core = self.extract_cluster_single(cluster_index, clusterer)
+        # check if dense core is empty
+        if np.all(dense_core == False):
+            raise ValueError("Cluster too small")
+
+        if method == 'xd':
+            return self.get_xd                      (dense_core)
+        elif method == 'cbve':
+            return self.get_classical_bulk_estimate (dense_core)
+        else:
+            raise ValueError("Invalid method")
+
     
     @staticmethod
     def calculate_distance(V, mu, x):
@@ -275,7 +297,7 @@ class VelocityTester:
 
         return distance.mahalanobis(x, mu, iv)
     
-    def xd_mean_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
+    def mahalanobis_mean_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False, method='xd'):
         """
         Perform a test based on the mahalanobis distance between the means of two clusters.
         
@@ -298,39 +320,35 @@ class VelocityTester:
 
         # for each cluster, get the xd object
         try:
-            xd = [
-                self.get_xd(labels == cluster, clusterer)
+            sample_params = [
+                self.get_cov_mean(labels == cluster, clusterer, method=method)
                 for cluster in [old_cluster, new_cluster]
             ]
         except:
             return False, [1000, 1000], {'error': 'Cluster too small'}
 
-        # if one of the clusters is too small, return False
-        if xd[0] is None or xd[1] is None:
-            return False, [1000, 1000], {'error': 'Cluster too small'}
-
         # get the mahalanobis distance between the two clusters and maximize it
         try:
             max_mahalanobis_distance = max([
-                VelocityTester.calculate_distance(xd[0][1], xd[0][0], xd[1][0]),
-                VelocityTester.calculate_distance(xd[1][1], xd[1][0], xd[0][0])
+                VelocityTester.calculate_distance(sample_params[0][1], sample_params[0][0], sample_params[1][0]),
+                VelocityTester.calculate_distance(sample_params[1][1], sample_params[1][0], sample_params[0][0])
             ])
         except:
             return False, [1000, 1000], {'error': 'Covariance Matrix is singular'}
 
         # calculate the mean deviation for new_cluster
-        mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
+        mean_deviation = [self.get_std_from_covariance(sample_params[i][1]) for i in range(2)]
 
         if return_stats:
-            return max_mahalanobis_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'mahalanobis_distance': max_mahalanobis_distance}
+            return max_mahalanobis_distance < 2, mean_deviation, {'xd': [sample_params[0], sample_params[1]], 'mahalanobis_distance': max_mahalanobis_distance}
         return max_mahalanobis_distance < 2, mean_deviation
         
-    def create_cluster_sample(self, cluster_index, clusterer):
-        xd = self.get_xd(cluster_index, clusterer)
+    def create_cluster_sample(self, cluster_index, clusterer, method='xd'):
+        sample_params = self.get_cov_mean(cluster_index, clusterer, method=method)
         # create samples from a normal distribution using cov and mean
-        return np.random.multivariate_normal(xd[0], xd[1], 500)
+        return np.random.multivariate_normal(sample_params[0], sample_params[1], 500)
     
-    def xd_sample_ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
+    def normal_sample_ttest(self, labels, old_cluster, new_cluster, clusterer, return_stats=False, method='xd'):
         """
         Perform a t-test on the error samples of two clusters.
         
@@ -353,7 +371,7 @@ class VelocityTester:
         # get a cluster sample for both clusters
         try:
             cluster_samples = [
-                self.create_cluster_sample(labels == cluster, clusterer)
+                self.create_cluster_sample(labels == cluster, clusterer, method=method)
                 for cluster in [old_cluster, new_cluster]
             ]
         except:
@@ -369,7 +387,7 @@ class VelocityTester:
             return self.is_same_velocity(pvalues), mean_deviation, {'err_samples': cluster_samples, 'p_values': pvalues, 't_stat': t_stat}
         return self.is_same_velocity(pvalues), mean_deviation
     
-    def xd_mean_distance_sample_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
+    def minimax_mean_distance_sample_distance(self, labels, old_cluster, new_cluster, clusterer, return_stats=False, method='xd'):
         """
         Perform a test based on the mahalanobis distance between the means of two clusters.
 
@@ -390,11 +408,11 @@ class VelocityTester:
             True if the velocities are the same, False otherwise
         """
 
-        xd = []
         try:
-            for cluster in [old_cluster, new_cluster]:
-                cluster_index = labels == cluster
-                xd.append(self.get_xd(cluster_index, clusterer))
+            sample_params = [
+                self.get_cov_mean(labels == cluster, clusterer, method=method)
+                for cluster in [old_cluster, new_cluster]
+            ]
         except:
             return False, [1000, 1000], {'error': 'Cluster too small'}
 
@@ -408,7 +426,7 @@ class VelocityTester:
                 distances.append(
                     max(
                         [
-                            self.calculate_distance(xd[j][1], xd[j][0], x)
+                            self.calculate_distance(sample_params[j][1], sample_params[j][0], x)
                             for x in self.data[cluster_index].loc[:, ['U', 'V', 'W']].values
                         ]
                     )
@@ -421,13 +439,13 @@ class VelocityTester:
         min_distance = min(distances)
 
         # calculate the mean deviation for both clusters
-        mean_deviation = [self.get_mean_std_covariance(xd[i][1]) for i in range(2)]
+        mean_deviation = [self.get_std_from_covariance(sample_params[i][1]) for i in range(2)]
 
         if return_stats:
-            return min_distance < 2, mean_deviation, {'xd': [xd[0], xd[1]], 'distance': min_distance}
+            return min_distance < 2, mean_deviation, {'xd': [sample_params[0], sample_params[1]], 'distance': min_distance}
         return min_distance < 2, mean_deviation
     
-    def xd_sample_bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats):
+    def normal_sample_bootstrap_range_test(self, labels, old_cluster, new_cluster, clusterer, return_stats, method='xd'):
         """
         Perform a range-based bootstrap test on the samples taken from the xd.
 
@@ -451,7 +469,7 @@ class VelocityTester:
         # get samples
         try:
             velocity_samples = [
-                self.create_cluster_sample(labels == cluster, clusterer)
+                self.create_cluster_sample(labels == cluster, clusterer, method=method)
                 for cluster in [old_cluster, new_cluster]
             ]
         except:
