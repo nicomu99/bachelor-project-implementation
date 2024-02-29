@@ -19,7 +19,7 @@ class VelocityTester:
         self.weights = weights
         self.error_sampler = err_sampler
         self.clusterer = clusterer
-        self.cbve = ClassicBV(method='BFGS')
+        self.cbve = ClassicBV(self.data)
         self.bootstrap_cache = {}
     
     def run_test(self, labels, old_cluster, new_cluster, clusterer=None, return_stats=False):
@@ -267,7 +267,7 @@ class VelocityTester:
         return xd.min_entropy_component()
     
     def get_classical_bulk_estimate(self, dense_core):
-        return self.cbve.estimate_normal_params(dense_core, method='BFGS')
+        return self.cbve.estimate_normal_params(dense_core, remove_outliers=True, method='BFGS')
     
     def get_cov_mean(self, cluster_index, clusterer, method='xd'):
         dense_core = self.extract_cluster_single(cluster_index, clusterer)
