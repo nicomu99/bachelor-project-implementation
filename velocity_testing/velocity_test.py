@@ -21,6 +21,7 @@ class VelocityTester:
         self.clusterer = clusterer
         self.cbve = ClassicBV(self.data)
         self.bootstrap_cache = {}
+        self.threshold = 0.5 # threshold for classifier test
     
     def run_test(self, labels, old_cluster, new_cluster, clusterer=None, return_stats=False):
         if self.testing_mode   == 'ttest':
@@ -45,11 +46,16 @@ class VelocityTester:
             return self.minimax_mean_distance_sample_distance   (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
         elif self.testing_mode == 'cbve_sample_bootstrap_range_test':
             return self.normal_sample_bootstrap_range_test      (labels, old_cluster, new_cluster, clusterer, return_stats, method='cbve')
+        elif self.testing_mode == 'classifier_test':
+            return self.classifier_test                         (labels, old_cluster, new_cluster, clusterer, return_stats)
         else:
             raise ValueError("Invalid testing mode")
         
     def update_testing_mode(self, testing_mode):
         self.testing_mode = testing_mode
+    
+    def update_threshold(self, threshold):
+        self.threshold = threshold
         
     def get_bootstrap_velocities(self, labels, cluster, n_bootstraps=100):
         """
@@ -500,3 +506,24 @@ class VelocityTester:
         if return_stats:
             return is_same_velocity, mean_deviation, {'velocity_difference': velocity_differences, 'confidence_interval': confidence_interval}
         return is_same_velocity, mean_deviation
+    
+    def classifier_test(self, labels, old_cluster, new_cluster, clusterer, return_stats=False):
+        # get the cluster samples
+        try:
+            cluster_samples = [
+                self.get_cov_mean(labels == cluster, clusterer, method='cbve')
+                for cluster in [old_cluster, new_cluster]
+            ]
+        except:
+            return False, [1000, 1000], {'error': 'Cluster too small'}
+
+        # calculate the euclidean distance between the means
+        distance = np.linalg.norm(cluster_samples[0][0] - cluster_samples[1][0])
+
+        # calculate the mean deviation for both clusters
+        mean_deviation = [self.get_std_from_covariance(cluster_samples[i][1]) for i in range(2)]
+
+        if return_stats:
+            return distance <= self.threshold, mean_deviation, {'distance': distance}
+        return distance <= self.threshold, mean_deviation
+
